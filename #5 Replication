@@ -1,0 +1,134 @@
+Designing Data Intensive Applications
+
+Part II
+
+Chapter 5 - Replication
+
+Assumption - Single machine can hold the entire database
+
+Need:
+→ To be geographically available for all users
+→ To withstand failures
+→ To support high read queries
+
+TradeOff:
+→ synchronous or asynchronus
+→ how to handle failed replicas
+
+Algorithms to be discussed
+→ single-leader
+→ multi-leader
+→ leaderless
+
+Leaders and followers
+→ Each node that stores a copy of the database is called a replica
+→ common solution -  leader-based replication 
+→ other names - active/passive or master–slave replication
+→ one leader and many followers. Write is sent to leader where it updates its local storage and sends update change to followers via replication log or change stream.
+→ read can be performed at any nodes
+→ Used in both relational(MySQL, PostgreSQL) and non-relational databases(MongoDB), distributed message brokers  (RabbitMQ)
+
+Synchronous Versus Asynchronous Replication
+→ semi-synchronous
+→ one leader. one synchronous followers, other asynchronous followers
+→ post a write request, leader forwards the request to synchronous folower and waits for it to send reponse after update. Only after this, leader notifies client reg the update successful. 
+→ in real world, update to followers usually happens within seconds. but this is not guaranteed.
+Advantage:
+→ even if the synchronous follower is slow or down, another asynchronous follower becomes synchronous. This ensure that data is up-to-date in at least 2 nodes at any time in the database.
+
+Drawbacks of having all followers as synchronous
+→ time taken to update exceeds, of nodes fail or due to system operating at maximum capacity, network latency.
+
+complete Asynchronous:
+Advantages:
+→ leader can go on with the writes and need not wait for follower.
+Drawbacks:
+→ if leader fails entire system goes down
+
+Setting Up New Followers
+→ Increase replicas or replace failed nodes
+→ need to ensure that it has up to data as same as leader
+→ some databases are fully automatic while some are semi automatic which includes multistep workflow with administrator to work
+
+Working
+→ take a snapshot from leader at exact time mentioned in log of leader
+→ then request leader to provide the updates that happened post the snapshot time.
+
+Handling Node Outages
+Reason
+→ system failure/crashes
+→ planned maintenance
+→ network issues
+→ power outages
+
+Ways to achieve high availability with leader-based replication
+
+
+1. Follower Failure : Catch-up recovery
+
+→ Follower keeps log fo transaction performed in local disk. 
+→ In case of crash, restart,  network interruptions between leader and follower it check the log and connects with the leader to get the missed transactions.
+→ Then it continues to receive the stream of data.
+
+
+1. Leader Failure : Failover
+
+Definition:
+→ one of the leader needs to be promoted as leader. Client need to reconfigure the write to be sent to new leader. Other followers should follow the new leader.
+Process:
+→ managed by administrator
+→ automatic
+Detailed step explanation:
+→ Determining that the leader has failed -  Use timeout as a  factor to determine node failure. Nodes bounce messages between nodes to determine their state. If a node fails to send a message, it is assumed as dead
+→ Choosing a new leader - Done via an election process. Replica that is most up-to-date with the old leader will be the new leader. (Problem - Getting all nodes to agree to new leader)
+→ Reconfiguring the system to use the new leader - Clients send new request to new leader. System needs to ensure that old leader which comes back should be a follower for new leader.
+Drawbacks:
+→ In asynchronous replications, new leader may not have all the updates. So writes are discarded.
+→ Two modes believe they are the leader. This is called split brain. So one node or both the nodes should be shut down.
+→ Choosing a right timeout else unnecessary fail overs takes place.
+
+Implementation of Replication Logs
+Statement-based replication
+Explanation:
+→ Leader logs every request and send it back to followers. 
+Issues:
+→ nondeterministic function like NOW() or RAND() produce different values in replica
+→ Triggers and procedures has side effects
+→ All the queries (UPDATE, INSERT)need to be executed in the same order
+WorkAround:
+→ Leader should return fixed value to all followers.
+
+Write-ahead log (WAL) shipping
+→ Used by storage engines
+Explanation:
+→ every write is appended to log and this is used to build replica.
+→ In LSM tree,log segments are compacted and garbage is collected in background
+→ In B-Trees, every modification is written to log and state is restored after crash using log.
+Advantages (Replication Protocol):
+→ if followers are updated, then it is possible to failover the leader and choose new leader.
+Issues:
+→ cant run different versions in leader and followers
+→ If the replication protocol dosent work then it requires downtime.
+
+Logical (row-based) log replication
+Explanation
+→ Follows 2 log structures for storage engines and for replication. This is called logical replication.
+→ log record uniquely identifies each operation in record
+→ INSERT - using primary key or all column values
+→ DELETE - has all values to uniquely identify the deleted column. In case of non-availability of primary key, all column values are required.
+→ UPDATE - has updated column values
+→ This logical format can be sent to external application or data warehouse for analysis. This is called Change Data Capture.
+
+Trigger-based replication
+Explanation
+→ Used in case when a subset of database needs to be replicated or replicate from one kind of db to another
+→ Trigger based executes a code and puts the result to a separate db and then application code can query this new db and perform analysis.
+→ prone to bugs
+
+Problems with Replication Lag
+Read-scaling architecture
+→ all writes goes via leader and read via followers replica. In this case replicas need to be in state with leader
+→ synchronous followers are not required as they slow the system if all followers dont respond due ro netwrok issues
+→ asynchronous leads to inconsistent value at read when compared to leader. so all writes have to be blocked and follower needs to be updated. this is called eventual consistency.
+→ replication lag is fraction of seconds. Can lead to seconds or minutes when system operates at high capacity.
+
